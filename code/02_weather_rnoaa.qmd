@@ -1,0 +1,16 @@
+---
+title: "02_weather"
+format: html
+editor: visual
+---
+
+##
+
+```{r warning=FALSE, message=FALSE}
+library(rnoaa)
+```
+
+```{r}
+
+```
+

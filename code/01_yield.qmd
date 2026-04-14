@@ -1,0 +1,107 @@
+---
+title: "01_yield"
+format: html
+editor: visual
+---
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(readr)
+library(readxl)
+library(tidymodels)
+library(sf)
+library(ggplot2)
+```
+
+# Training
+## Meta data
+
+```{r}
+meta <- read_csv("../data/training/training_meta.csv")
+
+meta
+```
+
+
+There are 43 distinct sites.
+```{r}
+meta %>% 
+  distinct(site)
+```
+
+#GEH1 site seems to be far from the other data collected.
+
+```{r}
+meta %>% 
+  st_as_sf( coords = c("longitude", "latitude"), crs = 4326) %>% 
+  ggplot()+
+  geom_sf()#+
+  geom_sf_text(aes(label = site, size = 0.1))
+```
+
+Lets add base map of US to visualize the spatial data distribution
+
+```{r warning=FALSE}
+library(maps)
+
+us_map <- st_as_sf(map("state", plot = F, fill = T))
+
+meta %>% 
+  st_as_sf( coords = c("longitude", "latitude"), crs = 4326) %>% 
+  ggplot()+
+  geom_sf(data = us_map, fill = "gray82", color = "white")+
+  geom_sf(color = "red", size = 2)
+```
+
+GEH1 site does not lie within the US boundary. So, let's drop that for 
+
+```{r}
+summary(meta)
+```
+
+## Soil data
+
+```{r}
+soil <- read_csv("../data/training/training_soil.csv") %>% 
+  mutate(site = substr(site,1,4))
+
+soil
+```
+
+```{r}
+summary(soil)
+```
+## Trait data
+
+```{r}
+trait <- read_csv("../data/training/training_trait.csv") %>% 
+  mutate(date_planted = as.Date(date_planted, format = "%m/%d/%y"),
+         date_harvested = as.Date(date_harvested, format = "%m/%d/%y")) %>% 
+  mutate(growing_l_d = date_harvested - date_planted) %>% 
+  mutate(growing_l_d = substr(growing_l_d, 1,3)) %>%
+  mutate(growing_l_d = as.numeric(growing_l_d))
+
+trait
+```
+
+```{r}
+summary(trait)
+```
+
+# Merge
+
+```{r}
+df <- trait %>% 
+  group_by(year, site) %>% 
+  left_join(soil, relationship = "many-to-many") %>% 
+  left_join(meta, relationship = "many-to-many")
+
+summary(df)
+```
+
+
+```{r}
+df %>% 
+  filter(year == "2014")
+```
+
