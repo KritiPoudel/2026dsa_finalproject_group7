@@ -1,7 +1,6 @@
 ---
 title: "02_daymet"
 format: html
-editor: visual
 ---
 
 ```{r message=FALSE, warning=FALSE}
@@ -83,11 +82,14 @@ daymet_train <- dw %>%
 daymet_train %>% head()
 ```
 
+
 ```{r}
 daymet_train$weather[1]
 ```
 
-##training weather data
+
+
+##export
 ```{r}
 daymet_train_unnest <- daymet_train %>%
   unnest(weather) %>%
@@ -96,12 +98,20 @@ daymet_train_unnest <- daymet_train %>%
   janitor::clean_names()
 
 daymet_train_unnest
+```
 
+
+Export weather data for training
+```{r}
+write_csv(daymet_train_unnest, "../data/training/fieldweatherdata_train.csv")
 ```
 
 
 
-#testing ##meta
+
+#Testing 
+
+##Meta
 ```{r}
 meta_test <- read_csv("../data/testing/testing_meta.csv")
 
@@ -163,7 +173,7 @@ daymet_test %>% head()
 daymet_test$weather[1]
 ```
 
-##test weather data
+
 ```{r}
 daymet_test_unnest <- daymet_test %>%
   unnest(weather) %>%
@@ -174,4 +184,11 @@ daymet_test_unnest <- daymet_test %>%
 daymet_test_unnest
 
 ```
+
+
+##export
+```{r}
+write_csv(daymet_test_unnest, "../data/testing/fieldweatherdata_test.csv")
+```
+
 

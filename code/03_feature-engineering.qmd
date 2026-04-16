@@ -1,0 +1,164 @@
+---
+title: "03_feature Engineering"
+format: html
+---
+
+```{r message=FALSE, message=FALSE}
+
+library(tidyverse)
+```
+
+
+```{r}
+fieldweatherdata_train <- read_csv("../data/training/fieldweatherdata_train.csv")
+
+
+fieldweatherdata_train
+```
+
+#Training
+```{r}
+weathertrain_month <- fieldweatherdata_train %>%
+  # Selecting needed variables
+  dplyr::select(year, site, lat, lon,
+                yday,
+                dayl.s = dayl_s, 
+                prcp.mm = prcp_mm_day,
+                srad.wm2 = srad_w_m_2, 
+                tmax.c = tmax_deg_c, 
+                tmin.c = tmin_deg_c,
+                vp.pa = vp_pa
+                ) %>%
+  # Creating a date class variable  
+mutate(date_chr = paste0(year, "/", yday)) %>%
+mutate(date = as.Date(date_chr, "%Y/%j")) %>%
+  # Extracting month from date  
+  mutate(month = month(date)) %>%
+  mutate(month_abb = month(date, label = T))
+
+
+weathertrain_month
+```
+
+
+summarize daily weather variables based on month.
+```{r}
+weather_month_sum <- weathertrain_month %>%
+  group_by(year, site, month_abb) %>%
+  summarise(across(.cols = c(dayl.s,
+                             srad.wm2,
+                             tmax.c,
+                             tmin.c,
+                             vp.pa
+                             ),
+                  .fns = mean,
+                  .names = "mean_{.col}"
+                  ),
+            across(.cols = prcp.mm,
+                   .fns= sum,
+                   .names = "sum_{.col}")
+            ) %>%
+  ungroup()
+
+
+weather_month_sum
+```
+
+
+month as part of the column name
+```{r}
+weather_month_sum_wide <- weather_month_sum %>%
+  pivot_longer(mean_dayl.s:sum_prcp.mm) %>%
+  mutate(varname = paste0(name,"_",month_abb)) %>%
+  dplyr::select(-name, -month_abb) %>%
+  pivot_wider(names_from = varname,
+              values_from = value) %>%
+  # Rounding to one decimal point
+  mutate(across(c(3:74), ~round(., 1) ))
+
+weather_month_sum_wide
+```
+
+
+##export feature engineered weather data for training
+```{r}
+write_csv(weather_month_sum_wide, "../data/training/weathermonthsum_train.csv")
+```
+
+
+#Testing
+```{r}
+fieldweatherdata_test <- read_csv("../data/testing/fieldweatherdata_test.csv")
+
+
+fieldweatherdata_test
+```
+
+
+```{r}
+weather_test_month <- fieldweatherdata_test %>%
+  # Selecting needed variables
+  dplyr::select(year, site, lat, lon,
+                yday,
+                dayl.s = dayl_s, 
+                prcp.mm = prcp_mm_day,
+                srad.wm2 = srad_w_m_2, 
+                tmax.c = tmax_deg_c, 
+                tmin.c = tmin_deg_c,
+                vp.pa = vp_pa
+                ) %>%
+  # Creating a date class variable  
+mutate(date_chr = paste0(year, "/", yday)) %>%
+mutate(date = as.Date(date_chr, "%Y/%j")) %>%
+  # Extracting month from date  
+  mutate(month = month(date)) %>%
+  mutate(month_abb = month(date, label = T))
+
+
+weather_test_month
+```
+
+
+summarize daily weather variables based on month
+```{r}
+weather_test_sum <- weather_test_month %>%
+  group_by(year, site, month_abb) %>%
+  summarise(across(.cols = c(dayl.s,
+                             srad.wm2,
+                             tmax.c,
+                             tmin.c,
+                             vp.pa
+                             ),
+                  .fns = mean,
+                  .names = "mean_{.col}"
+                  ),
+            across(.cols = prcp.mm,
+                   .fns= sum,
+                   .names = "sum_{.col}")
+            ) %>%
+  ungroup()
+
+
+weather_test_sum
+```
+
+
+month as part of the column name
+```{r}
+weather_test_sum_wide <- weather_test_sum %>%
+  pivot_longer(mean_dayl.s:sum_prcp.mm) %>%
+  mutate(varname = paste0(name,"_",month_abb)) %>%
+  dplyr::select(-name, -month_abb) %>%
+  pivot_wider(names_from = varname,
+              values_from = value) %>%
+  # Rounding to one decimal point
+  mutate(across(c(3:74), ~round(., 1) ))
+
+weather_test_sum_wide
+```
+
+
+##export feature engineered weather data for testing
+```{r}
+write_csv(weather_test_sum_wide, "../data/testing//weathermonthsum_test.csv")
+```

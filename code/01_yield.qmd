@@ -14,6 +14,7 @@ library(ggplot2)
 ```
 
 # Training
+
 ## Meta data
 
 ```{r}
@@ -22,8 +23,8 @@ meta <- read_csv("../data/training/training_meta.csv")
 meta
 ```
 
-
 There are 43 distinct sites.
+
 ```{r}
 meta %>% 
   distinct(site)
@@ -53,7 +54,7 @@ meta %>%
   geom_sf(color = "red", size = 2)
 ```
 
-GEH1 site does not lie within the US boundary. So, let's drop that for 
+GEH1 site does not lie within the US boundary. So, let's drop that for
 
 ```{r}
 summary(meta)
@@ -71,6 +72,7 @@ soil
 ```{r}
 summary(soil)
 ```
+
 ## Trait data
 
 ```{r}
@@ -91,17 +93,61 @@ summary(trait)
 # Merge
 
 ```{r}
+weather_df <- read_csv("../data/training/weathermonthsum_train.csv")
+
 df <- trait %>% 
   group_by(year, site) %>% 
   left_join(soil, relationship = "many-to-many") %>% 
-  left_join(meta, relationship = "many-to-many")
+  left_join(weather_df, relationship = "many-to-many")
 
 summary(df)
 ```
+
+
+unique site
+```{r}
+df %>%
+  distinct(site) %>%
+  arrange(site)
+```
+
+unique previous crops - do we need to worry about previous crops??
+```{r}
+df %>%
+  distinct(previous_crop) %>%
+  arrange(previous_crop)
+```
+
+Clean previous_crop column
+```{r}
+df <- df %>%
+  mutate(previous_crop = case_when(
+    is.na(previous_crop)                          ~ "unknown",
+    str_detect(str_to_lower(previous_crop), "soy")     ~ "soybean",
+    str_detect(str_to_lower(previous_crop), "corn")    ~ "corn",
+    str_detect(str_to_lower(previous_crop), "wheat")   ~ "wheat",
+    str_detect(str_to_lower(previous_crop), "grain")   ~ "wheat",
+    str_detect(str_to_lower(previous_crop), "2019")    ~ "wheat",
+    str_detect(str_to_lower(previous_crop), "cotton")  ~ "cotton",
+    str_detect(str_to_lower(previous_crop), "sorghum") ~ "sorghum",
+    str_detect(str_to_lower(previous_crop), "peanut")  ~ "peanut",
+    str_detect(str_to_lower(previous_crop), "fallow")  ~ "fallow",
+    TRUE                                               ~ "other"
+  ))
+
+
+df %>% count(previous_crop, sort = TRUE)
+```
+
+
+Export joined file
+```{r export}
+write_csv(df, "../data/training/df_joined.csv")
+```
+
 
 
 ```{r}
 df %>% 
   filter(year == "2014")
 ```
-
