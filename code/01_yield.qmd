@@ -23,7 +23,7 @@ meta
 ```
 
 
-There are 43 distinct sites.
+There are 43 distinct sites. However, MOH1 is replicated twice and TXH1 is replicated 3 times. 
 ```{r}
 meta %>% 
   distinct(site)

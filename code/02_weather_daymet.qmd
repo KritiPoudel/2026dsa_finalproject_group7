@@ -14,36 +14,40 @@ library(readr)
 library(readxl)
 ```
 
-#training 
+#training
 
 ##Meta
+
 ```{r}
 meta_train <- read_csv("../data/training/training_meta.csv")
 
 meta_train
 ```
 
-
 ```{r}
 summary(meta_train)
 ```
 
 unique years
+
 ```{r message=FALSE, warning=FALSE}
 meta_train %>%
   distinct(year)
 ```
+
 10 distinct years
 
 unique sites
+
 ```{r message=FALSE, warning=FALSE}
 meta_train %>%
   distinct(site)
 ```
+
 43 unique sites
 
-
 ##remove GEH1
+
 ```{r}
 dw <- meta_train %>%
   filter(site != "GEH1") %>%
@@ -56,8 +60,8 @@ dw <- meta_train %>%
 
 dw
 ```
-Daymet doesn't cover Germany
 
+Daymet doesn't cover Germany
 
 ```{r}
 daymet_train <- dw %>%
@@ -88,6 +92,7 @@ daymet_train$weather[1]
 ```
 
 ##training weather data
+
 ```{r}
 daymet_train_unnest <- daymet_train %>%
   unnest(weather) %>%
@@ -99,27 +104,26 @@ daymet_train_unnest
 
 ```
 
-
-
 #testing ##meta
+
 ```{r}
 meta_test <- read_csv("../data/testing/testing_meta.csv")
 
 meta_test
 ```
 
-
 ```{r}
 summary(meta_test)
 ```
 
 unique sites
+
 ```{r message=FALSE, warning=FALSE}
 meta_test %>%
   distinct(site)
 ```
-23 unique sites
 
+23 unique sites
 
 ```{r}
 dx <- meta_test %>%
@@ -132,7 +136,6 @@ dx <- meta_test %>%
 
 dx
 ```
-
 
 ```{r}
 daymet_test <- dx %>%
@@ -158,12 +161,12 @@ daymet_test <- dx %>%
 daymet_test %>% head()
 ```
 
-
 ```{r}
 daymet_test$weather[1]
 ```
 
 ##test weather data
+
 ```{r}
 daymet_test_unnest <- daymet_test %>%
   unnest(weather) %>%
@@ -174,4 +177,3 @@ daymet_test_unnest <- daymet_test %>%
 daymet_test_unnest
 
 ```
-

@@ -1,0 +1,71 @@
+---
+title: "03_elevatr"
+format: html
+editor: visual
+---
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(tidymodels)
+
+library("terra")
+library("elevatr")
+library(sf)
+```
+
+# Sites
+
+Extract locations from the meta file to download the parameter of interest.
+
+```{r}
+meta <- read_csv("../data/training/training_meta.csv") %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>% 
+  filter(!site == "GEH1")
+
+```
+
+# Elevatr
+
+The elevatr package provides access to elevation data from AWS Open Data Terrain Tiles and the Open Topography Global datasets API for raster digital elevation models.
+
+Source:  [[https://github.com/usepa/elevatr]].
+
+```{r}
+elev <- get_elev_point(meta, src = "epqs") #point scale takes a lot of time and internal server error is seen with code "500".
+```
+
+There are some NA is previous dataframe. So, let's extract the sites where the elevation data is not available.
+
+```{r}
+ele_na <- elev %>% 
+  filter(is.na(elevation)) %>% 
+  dplyr::select(site, geometry) # 55 sites donot have elevation data
+```
+
+Second lot of elevation data extraction.
+
+```{r}
+elev_02 <- get_elev_point(ele_na, src = "epqs")
+```
+
+# Merge 
+
+Merge all the sites with complete set of information on elevation.
+
+```{r}
+elev_all <- elev %>% 
+  st_join(elev_02) %>% 
+  mutate(elevation = dplyr::case_when(is.na(elevation.x) ~ elevation.y,TRUE ~ elevation.x)) %>%
+  select(-elevation.x, -elevation.y, -elev_units.x, -elev_units.y, -site.y) %>% 
+  rename(site = site.x,
+         elevation_m = elevation)
+```
+
+# Save the output
+
+```{r}
+# write_sf(elev_all,"../data/training/03_elevation_m.geojson")
+```
+
+

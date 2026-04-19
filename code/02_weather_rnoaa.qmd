@@ -4,13 +4,63 @@ format: html
 editor: visual
 ---
 
-##
+## rnoaa
 
 ```{r warning=FALSE, message=FALSE}
+library(readr)
+library(purrr)
+library(dplyr)
+library(tidymodels)
 library(rnoaa)
 ```
 
+## Api Key
 ```{r}
+options(noaakey = "roRDFttsEgctcJuwFGFfxOLlvCYKEYvZ")
+```
+
+## ghcnd stations
+
+```{r}
+
+stations <- ghcnd_stations()
+
+stations_sf <- stations %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+```
+
+## Study sites
+
+```{r}
+meta <- read_csv("../data/training/training_meta.csv") %>% 
+  st_as_sf( coords = c("longitude", "latitude"), crs = 4326)
+
+sites <- meta %>% 
+  dplyr::select(site, geometry) 
+```
+
+
+```{r}
+nearest_idx <- st_nearest_feature(sites, stations_sf)
+
+meta$station_id <- stations$id[nearest_idx]
+```
+
+
+```{r}
+meta %>% 
+  distinct(year)
+```
+
+
+```{r}
+stations_unique <- unique(meta$station_id)
+
+weather_data <- meteo_pull_monitors(
+  monitors = stations_unique,
+  date_min = "2014-01-01",
+  date_max = "2023-12-31",
+  var ="all")
 
 ```
 
