@@ -4,7 +4,11 @@ format: html
 editor: visual
 ---
 
+<<<<<<< HEAD
 ## rnoaa
+=======
+## 
+>>>>>>> e8e01d0bd91d9c321f16bb64fc20c1955c40368a
 
 ```{r warning=FALSE, message=FALSE}
 library(readr)
@@ -63,4 +67,3 @@ weather_data <- meteo_pull_monitors(
   var ="all")
 
 ```
-

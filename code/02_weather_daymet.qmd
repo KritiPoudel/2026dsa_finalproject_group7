@@ -1,7 +1,6 @@
 ---
 title: "02_daymet"
 format: html
-editor: visual
 ---
 
 ```{r message=FALSE, warning=FALSE}
@@ -87,12 +86,19 @@ daymet_train <- dw %>%
 daymet_train %>% head()
 ```
 
+
 ```{r}
 daymet_train$weather[1]
 ```
 
+<<<<<<< HEAD
 ##training weather data
 
+=======
+
+
+##export
+>>>>>>> e8e01d0bd91d9c321f16bb64fc20c1955c40368a
 ```{r}
 daymet_train_unnest <- daymet_train %>%
   unnest(weather) %>%
@@ -101,11 +107,25 @@ daymet_train_unnest <- daymet_train %>%
   janitor::clean_names()
 
 daymet_train_unnest
-
 ```
 
+
+Export weather data for training
+```{r}
+write_csv(daymet_train_unnest, "../data/training/fieldweatherdata_train.csv")
+```
+
+<<<<<<< HEAD
 #testing ##meta
 
+=======
+
+
+
+#Testing 
+
+##Meta
+>>>>>>> e8e01d0bd91d9c321f16bb64fc20c1955c40368a
 ```{r}
 meta_test <- read_csv("../data/testing/testing_meta.csv")
 
@@ -165,7 +185,10 @@ daymet_test %>% head()
 daymet_test$weather[1]
 ```
 
+<<<<<<< HEAD
 ##test weather data
+=======
+>>>>>>> e8e01d0bd91d9c321f16bb64fc20c1955c40368a
 
 ```{r}
 daymet_test_unnest <- daymet_test %>%
@@ -177,3 +200,14 @@ daymet_test_unnest <- daymet_test %>%
 daymet_test_unnest
 
 ```
+<<<<<<< HEAD
+=======
+
+
+##export
+```{r}
+write_csv(daymet_test_unnest, "../data/testing/fieldweatherdata_test.csv")
+```
+
+
+>>>>>>> e8e01d0bd91d9c321f16bb64fc20c1955c40368a
