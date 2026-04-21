@@ -322,13 +322,13 @@ cv_summary
 
 **Cross-validation Method Selection:**
 
-- **10-fold CV**: Standard method, good general performance
-- **Monte Carlo CV**: Provides more resamples, potentially more stable estimates
-- **Bootstrap CV**: Useful for small datasets, can be optimistic
-- **Grouped CV**: Prevents data leakage between correlated groups (sites)
-- **Leave-one-year-out**: Tests temporal generalization, crucial for time-series data
-- **Leave-one-site-out**: Tests spatial generalization, evaluates performance on new locations
-- **Leave-one-site-year-out**: Most rigorous spatio-temporal CV, tests completely novel combinations
+-   **10-fold CV**: Standard method, good general performance
+-   **Monte Carlo CV**: Provides more resamples, potentially more stable estimates
+-   **Bootstrap CV**: Useful for small datasets, can be optimistic
+-   **Grouped CV**: Prevents data leakage between correlated groups (sites)
+-   **Leave-one-year-out**: Tests temporal generalization, crucial for time-series data
+-   **Leave-one-site-out**: Tests spatial generalization, evaluates performance on new locations
+-   **Leave-one-site-year-out**: Most rigorous spatio-temporal CV, tests completely novel combinations
 
 Based on the comparison, we'll select the cross-validation method that provides the most stable performance estimates with lowest variance. For this agricultural dataset with spatio-temporal correlations, **Leave-one-site-year-out CV** is most appropriate as it provides the most realistic evaluation by testing on completely novel site-year combinations, preventing both spatial and temporal data leakage.
 
@@ -370,15 +370,14 @@ ggplot(data = xgb_grid,
 
 ## 3. Model Tuning
 
-In this expanded analysis, we tune seven hyperparameters:
-- trees, tree_depth, min_n, learn_rate, mtry, loss_reduction, sample_size
+In this expanded analysis, we tune seven hyperparameters: - trees, tree_depth, min_n, learn_rate, mtry, loss_reduction, sample_size
 
 We explore multiple hyperparameter tuning methods to find the best approach for our XGBoost model. Each method has different strengths:
 
-- **ANOVA Racing**: Adaptive elimination of poor candidates, computationally efficient
-- **Grid Search**: Systematic evaluation of all combinations, comprehensive but expensive
-- **Bayesian Optimization**: Probabilistic model-guided search, efficient for expensive evaluations
-- **Simulated Annealing**: Temperature-controlled exploration-exploitation balance
+-   **ANOVA Racing**: Adaptive elimination of poor candidates, computationally efficient
+-   **Grid Search**: Systematic evaluation of all combinations, comprehensive but expensive
+-   **Bayesian Optimization**: Probabilistic model-guided search, efficient for expensive evaluations
+-   **Simulated Annealing**: Temperature-controlled exploration-exploitation balance
 
 ### a. ANOVA Racing (Adaptive Grid Search)
 

@@ -329,6 +329,29 @@ cv_summary <- cv_comparison_results %>%
 cv_summary
 ```
 
+```{r}
+# Save CV comparison plot (create it first if not already assigned)
+if (!exists("cv_plot")) {
+  cv_plot <- cv_comparison_results %>%
+    filter(.metric == "rmse") %>%
+    ggplot(aes(x = method, y = mean, fill = method)) +
+    geom_boxplot() +
+    labs(title = "RMSE Distribution Across CV Methods",
+         x = "Cross-validation Method",
+         y = "RMSE") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+ggsave("../output/cv_methods_comparison_SVM.png", 
+       plot = cv_plot, 
+       width = 10, 
+       height = 6, 
+       dpi = 300)
+
+cat("CV methods comparison plot saved to ../output/cv_methods_comparison_SVM.png\n")
+```
+
+
 **Cross-validation Method Selection:**
 
 -   **10-fold CV**: Standard method, good general performance
@@ -384,14 +407,27 @@ svm_grid
 ```
 
 ```{r}
-ggplot(data = svm_grid,
+hyperparam_plot <- ggplot(data = svm_grid,
        aes(x = cost, 
            y = rbf_sigma,
            color = eps)) +
   geom_point(alpha = .7) +
   scale_color_viridis_c() +
   labs(title = "Hyperparameter Grid for SVM Tuning",
-        subtitle = paste("Using", best_cv_method, "Cross-validation"))
+       subtitle = paste("Using", best_cv_method, "Cross-validation"))
+
+hyperparam_plot
+```
+
+```{r save_hyperparam_plot}
+# Save hyperparameter grid plot
+ggsave("../output/SVM_hyperparameter_grid.png", 
+       plot = hyperparam_plot, 
+       width = 8, 
+       height = 6, 
+       dpi = 300)
+
+cat("Hyperparameter grid plot saved to ../output/hyperparameter_grid.png\n")
 ```
 
 ## 3. Model Tuning
@@ -525,6 +561,18 @@ tuning_comparison %>%
        y = "RMSE") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+```{r}
+# Save tuning methods comparison plot
+ggsave("../output/tuning_methods_comparison_SVM.png", 
+       plot = tuning_plot, 
+       width = 10, 
+       height = 6, 
+       dpi = 300)
+
+cat("Tuning methods comparison plot saved to ../output/tuning_methods_comparison_SVM.png\n")
+```
+
 
 ## 4. Select Best Models
 
