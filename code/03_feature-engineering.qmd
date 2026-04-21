@@ -160,5 +160,24 @@ weather_test_sum_wide
 
 ##export feature engineered weather data for testing
 ```{r}
-write_csv(weather_test_sum_wide, "../data/testing//weathermonthsum_test.csv")
+# write_csv(weather_test_sum_wide, "../data/testing//weathermonthsum_test.csv")
 ```
+
+
+```{r}
+wea <- read_csv("../data/training/weathermonthsum_train.csv")
+
+trait_W <- read_csv("../data/training/training_trait.csv") %>% 
+  dplyr::select(year, site,hybrid, yield_mg_ha)
+```
+
+```{r}
+wea_yield <- wea %>%
+  group_by(year, site) %>% 
+  left_join(trait_W) %>% 
+  ungroup()
+
+# write.csv(wea_yield, "../data/training/wea_month_sum_yield.csv")
+```
+
+

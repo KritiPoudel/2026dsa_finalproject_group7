@@ -29,7 +29,7 @@ meta <- read_csv("../data/training/training_meta.csv") %>%
 
 The elevatr package provides access to elevation data from AWS Open Data Terrain Tiles and the Open Topography Global datasets API for raster digital elevation models.
 
-Source:  [[https://github.com/usepa/elevatr]].
+Source: \[\[https://github.com/usepa/elevatr\]\].
 
 ```{r}
 elev <- get_elev_point(meta, src = "epqs") #point scale takes a lot of time and internal server error is seen with code "500".
@@ -49,7 +49,7 @@ Second lot of elevation data extraction.
 elev_02 <- get_elev_point(ele_na, src = "epqs")
 ```
 
-# Merge 
+# Merge
 
 Merge all the sites with complete set of information on elevation.
 

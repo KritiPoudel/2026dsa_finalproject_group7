@@ -1,0 +1,628 @@
+---
+title: "Enhanced XGBoost Model"
+format: html
+editor: visual
+---
+
+# ML Workflow with Enhanced XGBoost
+
+## Step 1: Load Libraries
+
+We begin by loading the required libraries:
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidymodels)   # Core framework for modeling (includes recipes, workflows, parsnip, etc.)
+library(finetune)     # Additional tuning strategies (e.g., racing, ANOVA-based tuning)
+library(vip)          # For plotting variable importance from fitted models
+library(xgboost)      # XGBoost implementation in R
+library(ranger)       # Fast implementation of Random Forests
+library(tidyverse)    # Data wrangling and visualization
+library(doParallel)   # For parallel computing (useful during resampling/tuning)
+library(shapviz)
+```
+
+# Load the data set
+
+-   Setting a seed ensures reproducibility.
+-   Splitting data helps validate generalizability by preventing the model from seeing the test data during training.
+
+```{r weather}
+weather <- read_csv("../data/training/wea_month_sum_yield.csv")
+head(weather)
+```
+
+-   We begin by splitting the dataset into **training** and **testing** sets.
+-   We use **stratified sampling** to ensure that the distribution of the target variable is maintained in both sets.
+-   A random **seed** is set to ensure reproducibility of the split.
+-   This step ensures that the model is validated on unseen data, helping assess its **generalizability**.
+
+> ⚠️ Note: Since tree-based models (like XGBoost and Random Forest) are not affected by the scale of the features, **normalization or standardization is not necessary**
+
+# ML workflow
+
+## 1. Pre-processing
+
+```{r weather_split}
+set.seed(931735) # Setting seed to get reproducible results
+
+weather_split <- initial_split(
+  weather,
+  prop = .7, # proportion of split same as previous codes
+  strata = strength_gtex  # Stratify by target variable
+  )
+weather_split
+```
+
+### a. Data split
+
+For data split, let's use **70% training / 30% testing**.
+
+```{r weather_train}
+weather_train <- training(weather_split)  # 70% of data
+weather_train #This is your training data frame
+```
+
+```{r weather_test}
+weather_test <- testing(weather_split)    # 30% of data
+weather_test
+```
+
+### b. Distribution of target variable
+
+```{r distribution}
+ggplot() +
+  geom_density(data = weather_train,
+               aes(x = strength_gtex),
+               color = "red") +
+  geom_density(data = weather_test,
+               aes(x = strength_gtex),
+               color = "blue")
+
+```
+
+### c. Data processing with recipe
+
+Before training, we need to perform some processing steps, like
+
+-   **removing unimportant variables**
+-   dropping NAs
+-   removing columns with single value
+-   others?
+
+For that, we'll create a **recipe** of these processing steps.
+
+This recipe will then be applied now to the **train data**, and easily applied to the **test data** when we bring it back at the end.
+
+```{r weather_recipe}
+# Create recipe for data preprocessing
+weather_recipe <- recipe(strength_gtex ~ ., data = weather_train) %>% # Remove identifier columns and months not in growing season
+  step_rm(
+    year,
+    site,
+    matches("Jan|Feb|Mar|Apr|Nov|Dec")  # Remove non-growing season months
+  )
+
+weather_recipe
+```
+
+```{r weather_prep}
+# Prep the recipe to estimate any required statistics
+weather_prep <- weather_recipe %>%
+  prep()
+
+# Examine preprocessing steps
+weather_prep
+```
+
+## 2. Training
+
+### a. Model specification
+
+First, let's specify:\
+- the **type of model** we want to train\
+- which **engine** we want to use\
+- which **mode** we want to use
+
+> XGBoost can be run with either numerical (regression) or categorical (classification) explanatory variable. Therefore, we have the need to specify the mode here.
+
+XGBoost **hyperparameters**:
+
+-   **`trees`**: The number of boosting rounds (i.e., how many trees will be added sequentially).\
+-   **`tree_depth`**: Controls how deep each individual tree can grow. Deeper trees can capture more complex interactions but also increase the risk of overfitting.\
+-   **`min_n`**: Minimum number of observations required in a node for it to be split. Acts as a regularization tool to prevent overly specific splits.\
+-   **`learn_rate`**: Also known as `eta`, it controls how much each additional tree contributes to the overall model. Smaller values make the model more stable but require more trees.\
+-   **`mtry`**: Number of variables randomly sampled as candidates at each split. Lower values increase randomness and can prevent overfitting.\
+-   **`loss_reduction`**: Minimum loss reduction required to make a further partition on a leaf node. Higher values make the algorithm more conservative.\
+-   **`sample_size`**: Proportion of data to sample for each tree. Lower values increase randomness and can improve generalization.
+
+```{r xgb_spec}
+xgb_spec <- #Specifying XgBoost as our model type, asking to tune the hyperparameters
+  boost_tree(
+   # Total number of boosting iterations
+    trees = tune(),
+         # Maximum depth of each tree
+    tree_depth = tune(),
+             # Minimum samples required to split a node
+    min_n = tune(),
+        # Step size shrinkage for each boosting step
+    learn_rate = tune(),
+    # Number of variables to sample at each split
+    mtry = tune(),
+    # Minimum loss reduction for splits
+    loss_reduction = tune(),
+    # Proportion of data to sample
+    sample_size = tune()
+      ) %>%
+        #specify engine
+  set_engine("xgboost") %>%
+       # Set to mode
+  set_mode("regression")
+
+xgb_spec
+```
+
+### b. Cross-validation setup
+
+We will explore different cross-validation methods to ensure robust model evaluation and select the best approach for our XGBoost model. Each method has different strengths for handling potential data dependencies and providing reliable performance estimates.
+
+#### Standard 10-fold Cross-validation
+
+```{r}
+set.seed(235)
+resampling_foldcv <- vfold_cv(weather_train, v = 10)
+resampling_foldcv
+```
+
+#### Repeated 10-fold Cross-validation (5 repeats)
+
+```{r}
+set.seed(236)
+resampling_repeated_cv <- vfold_cv(weather_train, v = 10, repeats = 5)
+resampling_repeated_cv
+```
+
+#### Monte Carlo Cross-validation (25% held out, 25 iterations)
+
+```{r}
+set.seed(237)
+resampling_mc_cv <- mc_cv(weather_train, prop = 0.75, times = 25)
+resampling_mc_cv
+```
+
+#### Bootstrap Cross-validation (25 resamples)
+
+```{r}
+set.seed(238)
+resampling_bootstrap <- bootstraps(weather_train, times = 25)
+resampling_bootstrap
+```
+
+#### Grouped 10-fold Cross-validation (by site)
+
+Since our data includes multiple sites, we should consider spatial correlations. Grouped CV ensures that data from the same site stays together in training or testing sets, preventing data leakage and providing more realistic performance estimates for site-specific predictions.
+
+```{r}
+set.seed(239)
+resampling_grouped_cv <- group_vfold_cv(weather_train, group = site, v = 10)
+resampling_grouped_cv
+```
+
+#### Leave-one-year-out Cross-validation
+
+For temporal data, leave-one-year-out CV ensures that all data from a specific year is held out for testing, which is crucial for evaluating how well the model generalizes to new years and captures temporal trends.
+
+```{r}
+set.seed(240)
+resampling_year_cv <- group_vfold_cv(weather_train, group = year, v = length(unique(weather_train$year)))
+resampling_year_cv
+```
+
+#### Leave-one-site-out Cross-validation
+
+Leave-one-site-out CV holds out all data from a single site for testing, which is essential for evaluating spatial generalization and ensuring the model can predict for new locations.
+
+```{r}
+set.seed(241)
+resampling_site_cv <- group_vfold_cv(weather_train, group = site, v = length(unique(weather_train$site)))
+resampling_site_cv
+```
+
+#### Leave-one-site-year-out Cross-validation
+
+This is the most stringent CV method for spatio-temporal data. It creates unique groups for each site-year combination, ensuring that the model is tested on completely unseen spatio-temporal combinations.
+
+```{r}
+# Create combined site-year grouping variable
+weather_train <- weather_train %>%
+  mutate(site_year = paste(site, year, sep = "_"))
+
+set.seed(242)
+resampling_site_year_cv <- group_vfold_cv(weather_train, group = site_year, v = length(unique(weather_train$site_year)))
+resampling_site_year_cv
+```
+
+#### Compare Cross-validation Methods
+
+Let's run a quick comparison of these CV methods using a simple model to see which provides the most stable and reliable performance estimates.
+
+```{r cv_comparison}
+# Create a simple XGBoost spec for comparison
+simple_xgb_spec <- boost_tree(trees = 100, tree_depth = 6, min_n = 20, learn_rate = 0.1) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+# Function to evaluate CV method
+evaluate_cv_method <- function(cv_method, method_name, seed_val) {
+  set.seed(seed_val)
+  registerDoParallel(cores = parallel::detectCores() - 1)
+
+  results <- fit_resamples(
+    simple_xgb_spec,
+    preprocessor = weather_recipe,
+    resamples = cv_method,
+    control = control_resamples(save_pred = TRUE)
+  )
+
+  stopImplicitCluster()
+
+  results %>%
+    collect_metrics() %>%
+    mutate(method = method_name)
+}
+
+cv_methods_subset <- list(
+  resampling_foldcv,
+  resampling_mc_cv,
+  resampling_bootstrap,
+  resampling_grouped_cv,
+  resampling_year_cv,
+  resampling_site_cv,
+  resampling_site_year_cv
+)
+
+cv_names_subset <- c("10-fold CV", "Monte Carlo CV", "Bootstrap CV", "Grouped CV",
+                     "Leave-one-year-out", "Leave-one-site-out", "Leave-one-site-year-out")
+
+cv_seeds <- c(243, 244, 245, 246, 247, 248, 249)
+
+cv_comparison_results <- pmap_dfr(list(cv_methods_subset, cv_names_subset, cv_seeds),
+                                  ~evaluate_cv_method(..1, ..2, ..3))
+
+cv_comparison_results
+```
+
+```{r cv_comparison_plot}
+# Visualize CV method comparison
+cv_comparison_results %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = method, y = mean, fill = method)) +
+  geom_boxplot() +
+  labs(title = "RMSE Distribution Across CV Methods",
+       x = "Cross-validation Method",
+       y = "RMSE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Summary statistics
+cv_summary <- cv_comparison_results %>%
+  filter(.metric == "rmse") %>%
+  group_by(method) %>%
+  summarise(
+    mean_rmse = mean(mean),
+    sd_rmse = sd(mean),
+    min_rmse = min(mean),
+    max_rmse = max(mean)
+  ) %>%
+  arrange(mean_rmse)
+
+cv_summary
+```
+
+**Cross-validation Method Selection:**
+
+- **10-fold CV**: Standard method, good general performance
+- **Monte Carlo CV**: Provides more resamples, potentially more stable estimates
+- **Bootstrap CV**: Useful for small datasets, can be optimistic
+- **Grouped CV**: Prevents data leakage between correlated groups (sites)
+- **Leave-one-year-out**: Tests temporal generalization, crucial for time-series data
+- **Leave-one-site-out**: Tests spatial generalization, evaluates performance on new locations
+- **Leave-one-site-year-out**: Most rigorous spatio-temporal CV, tests completely novel combinations
+
+Based on the comparison, we'll select the cross-validation method that provides the most stable performance estimates with lowest variance. For this agricultural dataset with spatio-temporal correlations, **Leave-one-site-year-out CV** is most appropriate as it provides the most realistic evaluation by testing on completely novel site-year combinations, preventing both spatial and temporal data leakage.
+
+```{r}
+resampling_foldcv <- resampling_site_year_cv  # Use leave-one-site-year-out CV for main analysis
+resampling_foldcv
+```
+
+### c. Hyperparameter grid with Latin Hypercube Sampling
+
+We use Latin hypercube sampling to generate a diverse grid of hyperparameter combinations for our XGBoost model. The tuning will be performed using leave-one-site-year-out cross-validation to provide the most rigorous evaluation of spatio-temporal generalization.
+
+```{r }
+xgb_grid <- grid_latin_hypercube(
+  tree_depth(),
+  min_n(),
+  learn_rate(),
+  trees(),
+  mtry(),
+  loss_reduction(),
+  sample_size(),
+  size = 20  # Increased size for more comprehensive search
+)
+
+xgb_grid
+```
+
+```{r}
+ggplot(data = xgb_grid,
+       aes(x = tree_depth,
+           y = min_n,
+           color = learn_rate,
+           size = trees)) +
+  geom_point(alpha = .7) +
+  scale_color_viridis_c() +
+  labs(title = "XGBoost Hyperparameter Grid",
+       subtitle = "Using Leave-one-site-year-out Cross-validation")
+```
+
+## 3. Model Tuning
+
+In this expanded analysis, we tune seven hyperparameters:
+- trees, tree_depth, min_n, learn_rate, mtry, loss_reduction, sample_size
+
+We explore multiple hyperparameter tuning methods to find the best approach for our XGBoost model. Each method has different strengths:
+
+- **ANOVA Racing**: Adaptive elimination of poor candidates, computationally efficient
+- **Grid Search**: Systematic evaluation of all combinations, comprehensive but expensive
+- **Bayesian Optimization**: Probabilistic model-guided search, efficient for expensive evaluations
+- **Simulated Annealing**: Temperature-controlled exploration-exploitation balance
+
+### a. ANOVA Racing (Adaptive Grid Search)
+
+```{r xgb_race_result}
+set.seed(76544)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+xgb_race_res <- tune_race_anova(object = xgb_spec,
+                      preprocessor = weather_recipe,
+                      resamples = resampling_foldcv,
+                      grid = xgb_grid,
+                      control = control_race(save_pred = TRUE))
+stopImplicitCluster()
+
+beepr::beep()
+xgb_race_res$.metrics[[2]]
+```
+
+Let's check the race results
+
+```{r}
+plot_race(xgb_race_res)
+```
+
+### b. Regular Grid Search
+
+```{r xgb_grid_result}
+set.seed(76545)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+xgb_grid_res <- tune_grid(object = xgb_spec,
+                     preprocessor = weather_recipe,
+                     resamples = resampling_foldcv,
+                     grid = xgb_grid,
+                     control = control_grid(save_pred = TRUE))
+stopImplicitCluster()
+
+xgb_grid_res$.metrics[[2]]
+```
+
+### c. Bayesian Optimization
+
+```{r xgb_bayes_result}
+set.seed(76546)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+xgb_bayes_res <- tune_bayes(object = xgb_spec,
+                       preprocessor = weather_recipe,
+                       resamples = resampling_foldcv,
+                       initial = 10,  # Initial random evaluations
+                       iter = 20,     # Number of Bayesian iterations
+                       control = control_bayes(save_pred = TRUE))
+stopImplicitCluster()
+
+xgb_bayes_res$.metrics[[2]]
+```
+
+### d. Simulated Annealing
+
+```{r xgb_anneal_result}
+set.seed(76547)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+xgb_anneal_res <- tune_sim_anneal(object = xgb_spec,
+                             preprocessor = weather_recipe,
+                             resamples = resampling_foldcv,
+                             initial = xgb_grid[1:5,],  # Start with subset of grid
+                             control = control_sim_anneal(restart = 5, save_pred = TRUE))
+stopImplicitCluster()
+
+xgb_anneal_res$.metrics[[2]]
+```
+
+### e. Compare Tuning Methods
+
+Let's compare the performance of different tuning methods:
+
+```{r compare_tuning_methods}
+# Collect best results from each method
+tuning_comparison <- bind_rows(
+  xgb_race_res %>% select_best("rmse") %>% mutate(method = "ANOVA Racing"),
+  xgb_grid_res %>% select_best("rmse") %>% mutate(method = "Grid Search"),
+  xgb_bayes_res %>% select_best("rmse") %>% mutate(method = "Bayesian Optimization"),
+  xgb_anneal_res %>% select_best("rmse") %>% mutate(method = "Simulated Annealing")
+)
+
+tuning_comparison
+```
+
+```{r}
+# Visualize comparison
+tuning_comparison %>%
+  ggplot(aes(x = method, y = mean, fill = method)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Best RMSE by Tuning Method",
+       x = "Tuning Method",
+       y = "RMSE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## 4. Select Best Models
+
+Based on the tuning method comparison, we'll proceed with the ANOVA Racing results (xgb_race_res) as it typically provides good performance with computational efficiency. We select the best models using three strategies (best, within 1 SE, within 2% loss) which we learned in class:
+
+```{r}
+# Based on lowest RMSE
+best_rmse <- xgb_race_res %>%
+  select_best(metric = "rmse")%>%
+  mutate(source = "best_rmse")
+
+best_rmse
+
+```
+
+```{r}
+# Based on lowest RMSE within 1% loss
+best_rmse_pct_loss <- xgb_race_res %>%
+  select_by_pct_loss("min_n",
+                     metric = "rmse",
+                     limit = 1
+                     )%>%
+  mutate(source = "best_rmse_pct_loss")
+
+best_rmse_pct_loss
+```
+
+```{r}
+# Based on lowest RMSE within 1 se
+best_rmse_one_std_err <- xgb_race_res %>%
+  select_by_one_std_err(metric = "rmse",
+                        eval_time = 100,
+                        trees
+                        )%>%
+  mutate(source = "best_rmse_one_std_err")
+
+best_rmse_one_std_err
+```
+
+Here we use all three methods which we learn in this class for R2.
+
+```{r}
+# Based on greatest R2
+best_r2 <- xgb_race_res %>%
+  select_best(metric = "rsq")%>%
+  mutate(source = "best_r2")
+
+best_r2
+```
+
+```{r}
+# Based on lowest R2 within 1% loss
+best_r2_pct_loss <- xgb_race_res %>%
+  select_by_pct_loss("min_n",
+                     metric = "rsq",
+                     limit = 1
+                     ) %>%
+  mutate(source = "best_r2_pct_loss")
+
+best_r2_pct_loss
+```
+
+```{r}
+# Based on lowest R2 within 1 se
+best_r2_one_std_error <- xgb_race_res %>%
+  select_by_one_std_err(metric = "rsq",
+                        eval_time = 100,
+                        trees
+                        ) %>%
+  mutate(source = "best_r2_one_std_error")
+
+best_r2_one_std_error
+```
+
+## Compare and Finalize Model
+
+```{r comparing values}
+best_rmse %>%
+  bind_rows(best_rmse_pct_loss,
+            best_rmse_one_std_err,
+            best_r2,
+            best_r2_pct_loss,
+            best_r2_one_std_error) %>%
+  dplyr::select(source, everything())
+```
+
+## 5. Final Specification
+
+```{r final_spec_fit}
+final_spec <- boost_tree(
+  trees = best_r2$trees,
+  tree_depth = best_r2$tree_depth,
+  min_n = best_r2$min_n,
+  learn_rate = best_r2$learn_rate,
+  mtry = best_r2$mtry,
+  loss_reduction = best_r2$loss_reduction,
+  sample_size = best_r2$sample_size
+) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+final_spec
+```
+
+## 6. Final Fit and Predictions
+
+## Validation
+
+```{r final_fit}
+set.seed(10)
+final_fit <- last_fit(final_spec,
+                weather_recipe,
+                split = weather_split)
+
+final_fit %>%
+  collect_predictions()
+```
+
+## 7. Evaluate on Test Set
+
+```{r final_fit_metrics}
+final_fit %>%
+  collect_metrics()
+```
+
+## 8. Evaluate on Training Set
+
+```{r}
+final_spec %>%
+  fit(strength_gtex ~ .,
+      data = bake(weather_prep,
+                  weather_train)) %>%
+  augment(new_data = bake(weather_prep,
+                          weather_train)) %>%
+  rmse(strength_gtex, .pred) %>%
+  bind_rows(
+
+
+# R2
+final_spec %>%
+  fit(strength_gtex ~ .,
+      data = bake(weather_prep,
+                  weather_train)) %>%
+  augment(new_data = bake(weather_prep,
+                          weather_train)) %>%
+  rsq(strength_gtex, .pred)
+  )
+```

@@ -30,8 +30,8 @@ library(shapviz)
 -   Splitting data helps validate generalizability by preventing the model from seeing the test data during training.
 
 ```{r weather}
-weather <- read_csv("../data/weather_monthsum.csv")
-weather
+weather <- read_csv("../data/training/wea_month_sum_yield.csv")
+head(weather)
 ```
 
 -   We begin by splitting the dataset into **training** and **testing** sets.

@@ -97,8 +97,8 @@ summary(trait)
 
 # Merge
 
-```{r}
-weather_df <- read_csv("../data/training/weathermonthsum_train.csv")
+```{r message=FALSE}
+weather_df <- read_csv("../data/training/weathermonthsum_train.csv") 
 
 df <- trait %>% 
   group_by(year, site) %>% 
@@ -106,6 +106,15 @@ df <- trait %>%
   left_join(weather_df, relationship = "many-to-many")
 
 summary(df)
+```
+
+
+```{r}
+
+# wea_df <- read_csv("../data/training/fieldweatherdata_train.csv") %>% 
+#   dplyr::select(-c(site_2:year_2)) %>% 
+#   mutate(date = as.Date(paste0(yday,"/",year), format = "%j/%Y"))
+
 ```
 
 

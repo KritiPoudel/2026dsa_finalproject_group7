@@ -1,0 +1,758 @@
+---
+title: "SVM Model"
+format: html
+editor: visual
+---
+
+# ML Workflow with SVM
+
+## Step 1: Load Libraries
+
+We begin by loading the required libraries:
+
+```{r}
+#| message: false
+#| warning: false
+
+library(readr)
+library(dplyr)
+library(tidymodels)   # Core framework for modeling (includes recipes, workflows, parsnip, etc.)
+library(finetune)     # Additional tuning strategies (e.g., racing, ANOVA-based tuning)
+library(vip)          # For plotting variable importance from fitted models
+library(kernlab)      # SVM implementation in R
+library(ranger)       # Fast implementation of Random Forests
+library(tidyverse)    # Data wrangling and visualization
+library(doParallel)   # For parallel computing (useful during resampling/tuning)
+```
+
+# Load the data set
+
+-   Setting a seed ensures reproducibility.
+-   Splitting data helps validate generalizability by preventing the model from seeing the test data during training.
+
+```{r weather}
+weather <- read_csv("../data/training/wea_month_sum_yield.csv")
+colnames(weather)
+```
+
+-   We begin by splitting the dataset into **training** and **testing** sets.
+-   We use **stratified sampling** to ensure that the distribution of the target variable is maintained in both sets.
+-   A random **seed** is set to ensure reproducibility of the split.
+-   This step ensures that the model is validated on unseen data, helping assess its **generalizability**.
+
+> ⚠️ Note: SVM models require normalization/standardization of features, unlike tree-based models.
+
+# ML workflow
+
+## 1. Pre-processing
+
+```{r weather_split}
+set.seed(931735) # Setting seed to get reproducible results 
+
+weather_split <- initial_split(
+  weather, 
+  prop = .7, # proportion of split same as previous codes
+  strata = yield_mg_ha  # Stratify by target variable
+  )
+weather_split
+```
+
+### a. Data split
+
+For data split, let's use **70% training / 30% testing**.
+
+```{r weather_train}
+weather_train <- training(weather_split)  # 70% of data
+weather_train #This is your training data frame
+```
+
+```{r weather_test}
+weather_test <- testing(weather_split)    # 30% of data
+weather_test
+```
+
+### b. Distribution of target variable
+
+```{r distribution}
+train_test_plot <- ggplot() +
+  geom_density(data = weather_train, 
+               aes(x = strength_gtex),
+               color = "red") +
+  geom_density(data = weather_test, 
+               aes(x = strength_gtex),
+               color = "blue") +
+  labs(title = "Distribution of Target Variable: Training vs Test",
+       x = "Yield (Mg/ha)",
+       y = "Density",
+       color = "Dataset") +
+  scale_color_manual(values = c("red" = "red", "blue" = "blue"),
+                     labels = c("Training", "Test"))
+
+train_test_plot
+  
+```
+
+```{r}
+# Save the train vs test distribution plot
+ggsave("../output/train_test_distribution.png", 
+       plot = train_test_plot, 
+       width = 8, 
+       height = 6, 
+       dpi = 300)
+
+cat("Train vs Test distribution plot saved to ../output/train_test_distribution.png\n")
+```
+
+
+### c. Data processing with recipe
+
+Before training, we need to perform some processing steps, like
+
+-   normalizing/standardizing (required for SVM)
+-   **removing unimportant variables**
+-   dropping NAs
+-   removing columns with single value
+-   others?
+
+For that, we'll create a **recipe** of these processing steps.
+
+This recipe will then be applied now to the **train data**, and easily applied to the **test data** when we bring it back at the end.
+
+```{r weather_recipe}
+# Create recipe for data preprocessing
+weather_recipe <- recipe(yield_mg_ha ~ ., data = weather_train) %>% # Remove identifier columns and months not in growing season
+  step_rm(
+    year,
+    site,
+    hybrid,
+    matches("Jan|Feb|Mar|April|Oct|Nov|Dec")  # Remove non-growing season months
+  ) %>%
+  step_normalize(all_numeric_predictors())  # Normalize predictors for SVM
+
+weather_recipe
+```
+
+```{r weather_prep}
+# Prep the recipe to estimate any required statistics
+weather_prep <- weather_recipe %>% 
+  prep()
+
+# Examine preprocessing steps
+weather_prep
+```
+
+## 2. Training
+
+### a. Model specification
+
+First, let's specify:\
+- the **type of model** we want to train\
+- which **engine** we want to use\
+- which **mode** we want to use
+
+> SVM can be run with different kernels (linear, polynomial, radial basis function). We'll use RBF kernel for flexibility.
+
+SVM **hyperparameters**:
+
+-   **`cost`**: The cost parameter C, which controls the trade-off between having a smooth decision boundary and classifying training points correctly.\
+-   **`rbf_sigma`**: The sigma parameter for the RBF kernel, controlling the width of the kernel.\
+-   **`epsilon`**: The epsilon parameter for the epsilon-insensitive loss function in regression, controlling the width of the tube around the predicted function within which errors are ignored.
+
+```{r svm_spec}
+svm_spec <- #Specifying SVM as our model type, asking to tune the hyperparameters
+  svm_rbf(
+    cost = tune(),
+    rbf_sigma = tune()
+  ) %>%
+  set_engine("kernlab", eps = tune()) %>%  # Add epsilon as a tunable parameter
+  set_mode("regression")
+  
+svm_spec
+```
+
+### b. Cross-validation setup
+
+We will explore different cross-validation methods to ensure robust model evaluation and select the best approach for our SVM model. Each method has different strengths for handling potential data dependencies and providing reliable performance estimates.
+
+#### Standard 10-fold Cross-validation
+
+```{r}
+set.seed(235)
+resampling_foldcv <- vfold_cv(weather_train, v = 10)
+resampling_foldcv
+```
+
+#### Repeated 10-fold Cross-validation (5 repeats)
+
+```{r}
+set.seed(236)
+resampling_repeated_cv <- vfold_cv(weather_train, v = 10, repeats = 5)
+resampling_repeated_cv
+```
+
+#### Monte Carlo Cross-validation (25% held out, 25 iterations)
+
+```{r}
+set.seed(237)
+resampling_mc_cv <- mc_cv(weather_train, prop = 0.75, times = 25)
+resampling_mc_cv
+```
+
+#### Bootstrap Cross-validation (25 resamples)
+
+```{r}
+set.seed(238)
+resampling_bootstrap <- bootstraps(weather_train, times = 25)
+resampling_bootstrap
+```
+
+#### Grouped 10-fold Cross-validation (by site)
+
+Since our data includes multiple sites, we should consider spatial correlations. Grouped CV ensures that data from the same site stays together in training or testing sets, preventing data leakage and providing more realistic performance estimates for site-specific predictions.
+
+```{r}
+set.seed(239)
+resampling_grouped_cv <- group_vfold_cv(weather_train, group = site, v = 10)
+resampling_grouped_cv
+```
+
+#### Leave-one-year-out Cross-validation
+
+For temporal data, leave-one-year-out CV ensures that all data from a specific year is held out for testing, which is crucial for evaluating how well the model generalizes to new years and captures temporal trends.
+
+```{r}
+set.seed(240)
+resampling_year_cv <- group_vfold_cv(weather_train, group = year, v = length(unique(weather_train$year)))
+resampling_year_cv
+```
+
+#### Leave-one-site-out Cross-validation
+
+Leave-one-site-out CV holds out all data from a single site for testing, which is essential for evaluating spatial generalization and ensuring the model can predict for new locations.
+
+```{r}
+set.seed(241)
+resampling_site_cv <- group_vfold_cv(weather_train, group = site, v = length(unique(weather_train$site)))
+resampling_site_cv
+```
+
+#### Leave-one-site-year-out Cross-validation
+
+This is the most stringent CV method for spatio-temporal data. It creates unique groups for each site-year combination, ensuring that the model is tested on completely unseen spatio-temporal combinations.
+
+```{r}
+# Create combined site-year grouping variable
+weather_train <- weather_train %>%
+  mutate(site_year = paste(site, year, sep = "_"))
+
+set.seed(242)
+resampling_site_year_cv <- group_vfold_cv(weather_train, group = site_year, v = length(unique(weather_train$site_year)))
+resampling_site_year_cv
+```
+
+#### Compare Cross-validation Methods
+
+Let's run a quick comparison of these CV methods using a simple model to see which provides the most stable and reliable performance estimates.
+
+```{r cv_comparison}
+# Create a simple SVM spec for comparison
+simple_svm_spec <- svm_rbf(cost = 1, rbf_sigma = 0.01) %>%
+  set_engine("kernlab") %>%
+  set_mode("regression")
+
+# Function to evaluate CV method
+evaluate_cv_method <- function(cv_method, method_name, seed_val) {
+  set.seed(seed_val)
+  registerDoParallel(cores = parallel::detectCores() - 1)
+  
+  results <- fit_resamples(
+    simple_svm_spec,
+    preprocessor = weather_recipe,
+    resamples = cv_method,
+    control = control_resamples(save_pred = TRUE)
+  )
+  
+  stopImplicitCluster()
+  
+  results %>%
+    collect_metrics() %>%
+    mutate(method = method_name)
+}
+
+cv_seeds <- c(243, 244, 245, 246, 247, 248, 249)
+
+cv_methods_subset <- list(
+  resampling_foldcv,
+  resampling_mc_cv,
+  resampling_bootstrap,
+  resampling_grouped_cv,
+  resampling_year_cv,
+  resampling_site_cv,
+  resampling_site_year_cv
+)
+
+cv_names_subset <- c("10-fold CV", "Monte Carlo CV", "Bootstrap CV", "Grouped CV", 
+                     "Leave-one-year-out", "Leave-one-site-out", "Leave-one-site-year-out")
+
+cv_comparison_results <- pmap_dfr(list(cv_methods_subset, cv_names_subset, cv_seeds), 
+                                  ~evaluate_cv_method(..1, ..2, ..3))
+
+
+cv_comparison_results <- map2_dfr(cv_methods_subset, cv_names_subset, evaluate_cv_method)
+
+cv_comparison_results
+```
+
+```{r cv_comparison_plot}
+# Visualize CV method comparison
+cv_comparison_results %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = method, y = mean, fill = method)) +
+  geom_boxplot() +
+  labs(title = "RMSE Distribution Across CV Methods",
+       x = "Cross-validation Method",
+       y = "RMSE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Summary statistics
+cv_summary <- cv_comparison_results %>%
+  filter(.metric == "rmse") %>%
+  group_by(method) %>%
+  summarise(
+    mean_rmse = mean(mean),
+    sd_rmse = sd(mean),
+    min_rmse = min(mean),
+    max_rmse = max(mean)
+  ) %>%
+  arrange(mean_rmse)
+
+cv_summary
+```
+
+**Cross-validation Method Selection:**
+
+-   **10-fold CV**: Standard method, good general performance
+-   **Monte Carlo CV**: Provides more resamples, potentially more stable estimates
+-   **Bootstrap CV**: Useful for small datasets, can be optimistic
+-   **Grouped CV**: Prevents data leakage between correlated groups (sites)
+-   **Leave-one-year-out**: Tests temporal generalization, crucial for time-series data
+-   **Leave-one-site-out**: Tests spatial generalization, evaluates performance on new locations
+-   **Leave-one-site-year-out**: Most rigorous spatio-temporal CV, tests completely novel combinations
+
+Based on the comparison results, we'll select the cross-validation method that provides the most stable performance estimates with lowest variance and mean RMSE.
+
+```{r select_best_cv}
+# Determine the best CV method based on lowest mean RMSE
+best_cv_method <- cv_summary %>%
+  slice(1) %>%
+  pull(method)
+
+cat("Best CV Method Selected:", best_cv_method, "\n")
+cat("Mean RMSE:", cv_summary %>% slice(1) %>% pull(mean_rmse), "\n")
+
+# Map method name to resampling object
+cv_method_mapping <- list(
+  "10-fold CV" = resampling_foldcv,
+  "Monte Carlo CV" = resampling_mc_cv,
+  "Bootstrap CV" = resampling_bootstrap,
+  "Grouped CV" = resampling_grouped_cv,
+  "Leave-one-year-out" = resampling_year_cv,
+  "Leave-one-site-out" = resampling_site_cv,
+  "Leave-one-site-year-out" = resampling_site_year_cv
+)
+
+# Select the best CV method object
+resampling_foldcv <- cv_method_mapping[[best_cv_method]]
+
+cat("\nSelected resampling object:\n")
+resampling_foldcv
+```
+
+### c. Hyperparameter grid with Latin Hypercube Sampling
+
+We use Latin hypercube sampling to generate a diverse grid of hyperparameter combinations for our SVM model. The tuning will be performed using best cross-validation based on RMSE to provide the most rigorous evaluation of spatio-temporal generalization.
+
+```{r }
+svm_grid <- grid_latin_hypercube(
+  cost(),
+  rbf_sigma(),
+  eps(),
+  size = 20  # Increased size for more comprehensive search
+)
+
+svm_grid
+```
+
+```{r}
+ggplot(data = svm_grid,
+       aes(x = cost, 
+           y = rbf_sigma,
+           color = eps)) +
+  geom_point(alpha = .7) +
+  scale_color_viridis_c() +
+  labs(title = "Hyperparameter Grid for SVM Tuning",
+        subtitle = paste("Using", best_cv_method, "Cross-validation"))
+```
+
+## 3. Model Tuning
+
+In this expanded analysis, we tune three hyperparameters: - **cost**: Controls the trade-off between smooth decision boundary and correct training point classification - **rbf_sigma**: Controls the width of the RBF kernel - **epsilon**: Controls the width of the epsilon-insensitive tube for regression loss
+
+We explore multiple hyperparameter tuning methods to find the best approach for our SVM model. Each method has different strengths:
+
+-   **ANOVA Racing**: Adaptive elimination of poor candidates, computationally efficient
+-   **Grid Search**: Systematic evaluation of all combinations, comprehensive but expensive
+-   **Bayesian Optimization**: Probabilistic model-guided search, efficient for expensive evaluations
+-   **Simulated Annealing**: Temperature-controlled exploration-exploitation balance
+
+### a. ANOVA Racing (Adaptive Grid Search)
+
+To explore this grid, we are going to use a method called **ANOVA Racing**.
+
+It works by:
+
+1.  Evaluating all of the candidate models, but only for a few resamples.
+
+2.  Determining which candidates have a low probability of being selected.
+
+3.  Eliminate poor candidates.
+
+4.  Repeat with next resample (until no more resamples remain).
+
+This can result in fitting a small number of models. It is not an iterative search; it is an adaptive grid search.
+
+```{r svm_race_result}
+set.seed(76544)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+svm_race_res <- tune_race_anova(object = svm_spec,
+                      preprocessor = weather_recipe,
+                      resamples = resampling_foldcv,
+                      grid = svm_grid,
+                      control = control_race(save_pred = TRUE))
+stopImplicitCluster()
+
+beepr::beep()
+svm_race_res$.metrics[[2]]
+```
+
+Let's check the race results
+
+```{r}
+plot_race(svm_race_res)
+```
+
+Notice how some combinations were dropped off early due to poor fit metrics on some initial resamples.
+
+### b. Regular Grid Search
+
+Regular grid search evaluates all combinations in the grid systematically. While more computationally expensive than racing methods, it provides a complete evaluation of the parameter space.
+
+```{r svm_grid_result}
+set.seed(76545)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+svm_grid_res <- tune_grid(object = svm_spec,
+                     preprocessor = weather_recipe,
+                     resamples = resampling_foldcv,
+                     grid = svm_grid,
+                     control = control_grid(save_pred = TRUE))
+stopImplicitCluster()
+
+svm_grid_res$.metrics[[2]]
+```
+
+### c. Bayesian Optimization
+
+Bayesian optimization uses a probabilistic model to predict which hyperparameter combinations are likely to perform well, iteratively refining the search space.
+
+```{r svm_bayes_result}
+set.seed(76546)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+svm_bayes_res <- tune_bayes(object = svm_spec,
+                       preprocessor = weather_recipe,
+                       resamples = resampling_foldcv,
+                       initial = 10,  # Initial random evaluations
+                       iter = 20,     # Number of Bayesian iterations
+                       control = control_bayes(save_pred = TRUE))
+stopImplicitCluster()
+
+svm_bayes_res$.metrics[[2]]
+```
+
+### d. Simulated Annealing
+
+Simulated annealing is inspired by the metallurgical process of annealing, using a temperature parameter that decreases over time to control the exploration-exploitation trade-off.
+
+```{r svm_anneal_result}
+set.seed(76547)
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+svm_anneal_res <- tune_sim_anneal(object = svm_spec,
+                             preprocessor = weather_recipe,
+                             resamples = resampling_foldcv,
+                             initial = svm_grid[1:5,],  # Start with subset of grid
+                             control = control_sim_anneal(restart = 5, save_pred = TRUE))
+stopImplicitCluster()
+
+svm_anneal_res$.metrics[[2]]
+```
+
+### e. Compare Tuning Methods
+
+Let's compare the performance of different tuning methods:
+
+```{r compare_tuning_methods}
+# Collect best results from each method
+tuning_comparison <- bind_rows(
+  svm_race_res %>% select_best("rmse") %>% mutate(method = "ANOVA Racing"),
+  svm_grid_res %>% select_best("rmse") %>% mutate(method = "Grid Search"),
+  svm_bayes_res %>% select_best("rmse") %>% mutate(method = "Bayesian Optimization"),
+  svm_anneal_res %>% select_best("rmse") %>% mutate(method = "Simulated Annealing")
+)
+
+tuning_comparison
+```
+
+```{r}
+# Visualize comparison
+tuning_comparison %>%
+  ggplot(aes(x = method, y = mean, fill = method)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Best RMSE by Tuning Method",
+       x = "Tuning Method",
+       y = "RMSE") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## 4. Select Best Models
+
+Based on the tuning method comparison, we'll proceed with the ANOVA Racing results (svm_race_res) as it typically provides good performance with computational efficiency. We select the best models using three strategies (best, within 1 SE, within 2% loss) which we learned in class:
+
+```{r}
+# Based on lowest RMSE
+best_rmse <- svm_race_res %>% 
+  select_best(metric = "rmse")%>% 
+  mutate(source = "best_rmse")
+
+best_rmse
+```
+
+```{r}
+# Based on lowest RMSE within 1% loss
+best_rmse_pct_loss <- svm_race_res %>% 
+  select_by_pct_loss("cost",
+                     metric = "rmse",
+                     limit = 1
+                     )%>% 
+  mutate(source = "best_rmse_pct_loss")
+
+best_rmse_pct_loss
+```
+
+```{r}
+# Based on lowest RMSE within 1 se
+best_rmse_one_std_err <- svm_race_res %>% 
+  select_by_one_std_err(metric = "rmse",
+                        eval_time = 100,
+                        cost
+                        )%>% 
+  mutate(source = "best_rmse_one_std_err")
+
+best_rmse_one_std_err
+```
+
+Here we use all three methods which we learn in this class for R2.
+
+```{r}
+# Based on greatest R2
+best_r2 <- svm_race_res %>% 
+  select_best(metric = "rsq")%>% 
+  mutate(source = "best_r2")
+
+best_r2
+```
+
+```{r}
+# Based on lowest R2 within 1% loss
+best_r2_pct_loss <- svm_race_res %>% 
+  select_by_pct_loss("cost",
+                     metric = "rsq",
+                     limit = 1
+                     ) %>% 
+  mutate(source = "best_r2_pct_loss")
+
+best_r2_pct_loss
+```
+
+```{r}
+# Based on lowest R2 within 1 se
+best_r2_one_std_error <- svm_race_res %>% 
+  select_by_one_std_err(metric = "rsq",
+                        eval_time = 100,
+                        cost
+                        ) %>%
+  mutate(source = "best_r2_one_std_error")
+
+best_r2_one_std_error
+```
+
+## Compare and Finalize Model
+
+```{r comparing values}
+best_rmse %>% 
+  bind_rows(best_rmse_pct_loss, 
+            best_rmse_one_std_err, 
+            best_r2, 
+            best_r2_pct_loss, 
+            best_r2_one_std_error) %>%
+  dplyr::select(source, everything())
+```
+
+## 5. Final Specification
+
+```{r final_spec_fit}
+final_spec <- svm_rbf(
+  cost = best_r2$cost,
+  rbf_sigma = best_r2$rbf_sigma
+) %>%
+  set_engine("kernlab", eps = best_r2$eps) %>%
+  set_mode("regression")
+
+final_spec
+```
+
+## 6. Final Fit and Predictions
+
+## Validation
+
+```{r final_fit}
+set.seed(10)
+final_fit <- last_fit(final_spec,
+                weather_recipe,
+                split = weather_split)
+
+final_fit %>%
+  collect_predictions()
+```
+
+## 7. Evaluate on Test Set
+
+```{r final_fit_metrics}
+final_fit %>%
+  collect_metrics()
+```
+
+## 8. Evaluate on Training Set
+
+```{r}
+final_spec %>%
+  fit(yield_mg_ha ~ .,
+      data = bake(weather_prep, 
+                  weather_train)) %>%
+  augment(new_data = bake(weather_prep, 
+                          weather_train)) %>% 
+  rmse(yield, .pred) %>%
+  bind_rows(
+    
+# R2
+final_spec %>%
+  fit(yield_mg_ha ~ .,
+      data = bake(weather_prep, 
+                  weather_train)) %>%
+  augment(new_data = bake(weather_prep, 
+                          weather_train)) %>% 
+  rsq(yield_mg_ha, .pred)
+  )
+```
+
+## 9. Apply Model to Real Test Set
+
+Now we apply the trained SVM model to the real test set from the testing folder.
+
+### a. Load Real Test Data
+
+```{r load_test_data}
+# Load real test weather data
+weather_test_real <- read_csv("../data/testing/weathermonthsum_test.csv")
+
+head(weather_test_real)
+nrow(weather_test_real)
+```
+
+### b. Preprocess Test Data
+
+We apply the same preprocessing recipe (fit on training data) to the test data:
+
+```{r preprocess_test_data}
+# Apply recipe to test data (using the prep object from training)
+weather_test_real_processed <- bake(weather_prep, new_data = weather_test_real)
+
+head(weather_test_real_processed)
+```
+
+### c. Make Predictions on Real Test Set
+
+```{r predictions_real_test}
+# Fit final model on all training data and make predictions on test data
+final_model_fit <- final_spec %>%
+  fit(yield_mg_ha ~ .,
+      data = bake(weather_prep, weather_train))
+
+# Make predictions on real test set
+test_predictions <- final_model_fit %>%
+  augment(new_data = weather_test_real_processed) %>%
+  select(year, site, .pred) %>%
+  rename(yield_mg_ha = .pred)
+
+test_predictions
+```
+
+### d. Prepare Submission File
+
+```{r prepare_submission}
+# Load the submission template
+submission_template <- read_csv("../data/testing/testing_submission.csv")
+
+head(submission_template)
+```
+
+```{r merge_predictions}
+# Merge predictions with submission template
+# For each hybrid at a given site-year, use the same predicted yield
+submission_results <- submission_template %>%
+  left_join(test_predictions, by = c("year", "site")) %>%
+  select(year, site, hybrid, yield_mg_ha)
+
+head(submission_results, 10)
+nrow(submission_results)
+```
+
+### e. Save Predictions to Output
+
+```{r save_predictions}
+# Save predictions to output folder
+write_csv(submission_results, "../output/svm_predictions.csv")
+
+# Also save to testing_submission.csv format if needed
+write_csv(submission_results, "../data/testing/testing_submission_svm.csv")
+
+cat("Predictions saved successfully!\n")
+cat("Number of predictions:", nrow(submission_results), "\n")
+cat("Number of unique site-year combinations:", n_distinct(submission_results %>% select(year, site)), "\n")
+```
+
+### f. Summary of Test Predictions
+
+```{r summary_predictions}
+submission_results %>%
+  group_by(year, site) %>%
+  summarise(
+    predicted_yield_mean = mean(yield_mg_ha, na.rm = TRUE),
+    n_hybrids = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(year, site)
+```
+
