@@ -6,11 +6,11 @@ editor: visual
 
 
 ```{r}
-shared_lib_path <- "/work/crss8030/instructor_data/shared_R_libs"
+#shared_lib_path <- "/work/crss8030/instructor_data/shared_R_libs"
 
-class_packages <- c("tidymodels", "tidyverse", "vip", "ranger", "finetune", "parsnip", "reticulate", "xgboost", "doParallel","nloptr", "lme4", "here")
+#class_packages <- c("tidymodels", "tidyverse", "vip", "ranger", "finetune", "parsnip", "reticulate", "xgboost", "doParallel","nloptr", "lme4", "here")
 
-install.packages(class_packages, lib = shared_lib_path)
+#install.packages(class_packages, lib = shared_lib_path)
 ```
 
 # Locate the installed libraries (important step while running the script in cluster - sapelo2)
@@ -23,7 +23,7 @@ install.packages(class_packages, lib = shared_lib_path)
 ## Step 1: Load Libraries
 ```{r}
 
- .libPaths()
+ #.libPaths()
 ```
 
 We begin by loading the required libraries:
@@ -59,7 +59,10 @@ here::here()
 # read using here package
 weather <- read_csv(here("data", "training", "wea_month_sum_yield.csv")) %>%
   select(-1) %>%
-  mutate(year = as.factor(year))
+  mutate(year = as.factor(year)) %>% 
+  drop_na()
+
+summary(weather)
 ```
 
 -   We begin by splitting the dataset into **training** and **testing** sets.
@@ -154,7 +157,8 @@ weather_recipe <- recipe(yield_mg_ha ~ ., data = weather_train) %>% # Remove ide
     matches("Jan|Feb|Mar|Apr|Oct|Nov|Dec")  # Remove non-growing season months
   ) %>%
   # updating the role of the 2 columns as ID, so they arenot used as predictors
-  update_role(c(year, site), new_role = "ID")
+  update_role(c(year, site), new_role = "ID") %>% 
+  step_rm("year", "site")
 
 weather_recipe
 ```
@@ -240,14 +244,14 @@ set.seed(235) #34549
 resampling_foldcv <- vfold_cv(weather_train, # Create 10-fold cross-validation resampling object from training data
                               v = 10)
 
-# Create leave one year out cv object from the sampling data
-resampling_fold_loyo <- group_vfold_cv(weather_train,
-                                       group = year)
-
-
-# Create leave one location out cv object from the sampling data
-resampling_fold_loso <- group_vfold_cv(weather_train,
-                                       group = site)
+# # Create leave one year out cv object from the sampling data
+# resampling_fold_loyo <- group_vfold_cv(weather_train,
+#                                        group = year)
+# 
+# 
+# # Create leave one location out cv object from the sampling data
+# resampling_fold_loso <- group_vfold_cv(weather_train,
+#                                        group = site)
 
 ```
 
@@ -322,9 +326,9 @@ set.seed(76544)
 
 # Create the list of CV techniques so we can loop through them
 cv_list <- list(
-  vfold = resampling_foldcv,
-  year = resampling_fold_loyo,
-  location = resampling_fold_loso
+  vfold = resampling_foldcv
+  # year = resampling_fold_loyo,
+  # location = resampling_fold_loso
 )
 
 # Create a empty list to store the results from the loop
@@ -577,5 +581,5 @@ ggsave(plot = vip,
 ```
 
 ```{r}
-knitr::purl("04-07_sapelo_partial.qmd", output = "sapelo_script.R", documentation = 0)
+knitr::purl("04_XGBoost_model.qmd", output = "XGBoost_script.R", documentation = 0)
 ```
