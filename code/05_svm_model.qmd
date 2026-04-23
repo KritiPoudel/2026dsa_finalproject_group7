@@ -76,10 +76,10 @@ weather_test
 ```{r distribution}
 train_test_plot <- ggplot() +
   geom_density(data = weather_train, 
-               aes(x = strength_gtex),
+               aes(x = yield_mg_ha),
                color = "red") +
   geom_density(data = weather_test, 
-               aes(x = strength_gtex),
+               aes(x = yield_mg_ha),
                color = "blue") +
   labs(title = "Distribution of Target Variable: Training vs Test",
        x = "Yield (Mg/ha)",
@@ -102,7 +102,6 @@ ggsave("../output/train_test_distribution.png",
 
 cat("Train vs Test distribution plot saved to ../output/train_test_distribution.png\n")
 ```
-
 
 ### c. Data processing with recipe
 
@@ -351,7 +350,6 @@ ggsave("../output/cv_methods_comparison_SVM.png",
 cat("CV methods comparison plot saved to ../output/cv_methods_comparison_SVM.png\n")
 ```
 
-
 **Cross-validation Method Selection:**
 
 -   **10-fold CV**: Standard method, good general performance
@@ -572,7 +570,6 @@ ggsave("../output/tuning_methods_comparison_SVM.png",
 
 cat("Tuning methods comparison plot saved to ../output/tuning_methods_comparison_SVM.png\n")
 ```
-
 
 ## 4. Select Best Models
 
@@ -803,4 +800,3 @@ submission_results %>%
   ) %>%
   arrange(year, site)
 ```
-
