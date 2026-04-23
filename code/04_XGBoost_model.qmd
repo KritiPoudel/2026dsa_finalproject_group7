@@ -153,12 +153,12 @@ cat("\nCreate recipe for data preprocessing\n")
 
 weather_recipe <- recipe(yield_mg_ha ~ ., data = weather_train) %>% # Remove identifier columns and months not in growing season
   step_rm(
-    hybrid,
     matches("Jan|Feb|Mar|Apr|Oct|Nov|Dec")  # Remove non-growing season months
   ) %>%
   # updating the role of the 2 columns as ID, so they arenot used as predictors
   update_role(c(year, site), new_role = "ID") %>% 
-  step_rm("year", "site")
+  step_other(hybrid, threshold = 500/nrow(weather_train)) %>%  # groups rare hybrids into "other"
+  step_dummy(hybrid, one_hot = TRUE)          # converts hybrid to numeric columns
 
 weather_recipe
 ```
@@ -456,6 +456,10 @@ final_fit %>%
   collect_predictions()
 ```
 
+```{r}
+final_fit %>% collect_metrics()
+```
+
 ## 7. Evaluate on Test Set
 
 ```{r final_fit_metrics}
@@ -464,49 +468,42 @@ test_met <- final_fit %>%
   mutate(estimate = round(.estimate, 3))
 ```
 
--R2 & RMSE = 0.2049.
 
--best_r2_pct_loss = 0.2049.
-
--best_r2_one_std_error = 0.1936.
-
--best_rmse_pct_loss = 0.1855.
-
--best_rmse_one_std_err = 0.1254.
 
 ## 8. Evaluate on Training Set
 
 ```{r}
 final_spec %>%
-  fit(strength_gtex ~ .,
+  fit(yield_mg_ha ~ .,
       data = bake(weather_prep, 
                   weather_train)) %>%
   augment(new_data = bake(weather_prep, 
                           weather_train)) %>% 
-  rmse(strength_gtex, .pred) %>%
-  bind_rows(
-    
-    
+  rmse(yield_mg_ha, .pred)
+```
+
+```{r}
 # R2
 final_spec %>%
-  fit(strength_gtex ~ .,
+  fit(yield_mg_ha ~ .,
       data = bake(weather_prep, 
                   weather_train)) %>%
   augment(new_data = bake(weather_prep, 
                           weather_train)) %>% 
-  rsq(strength_gtex, .pred))
+  rsq(yield_mg_ha, .pred)
 ```
+
 
 ```{r}
 final_fit %>%
   collect_predictions() %>%
-  ggplot(aes(x = strength_gtex,
+  ggplot(aes(x = yield_mg_ha,
              y = .pred)) +
   geom_point() +
   geom_abline() +
   geom_smooth(method = "lm") +
-  scale_x_continuous(limits = c(20, 40)) +
-  scale_y_continuous(limits = c(20, 40)) 
+  scale_x_continuous(limits = c(0, 25)) +
+  scale_y_continuous(limits = c(0, 25)) 
 ```
 
 ## 9. Predicted vs Observed Plot (publication ready)
@@ -514,10 +511,10 @@ final_fit %>%
 ```{r}
 publication_ready <- final_fit %>%
   collect_predictions() %>%
-  ggplot(aes(x = strength_gtex,
+  ggplot(aes(x = yield_mg_ha,
              y = .pred)) +
   # Changing the shape of the points to 
-  geom_point(aes(fill = strength_gtex), shape = 21, alpha = 0.7, show.legend = F) +
+  geom_point(aes(fill = yield_mg_ha), shape = 21, alpha = 0.7, show.legend = F) +
   # Using colorblind friendly color scale 
   scale_fill_viridis_c(option = "H") +
   
@@ -525,15 +522,15 @@ publication_ready <- final_fit %>%
   geom_abline(color = "red", linetype = 2) +
   
   geom_smooth(method = "lm") +
-  labs(x = "Observed Strenght (gtex)",
-       y = "Predicted Strength (gtex)")+
+  labs(x = "Observed Yield (Mg/Ha)",
+       y = "Predicted Yield (Mg/Ha)")+
   # Annotate R-sq and RMSE value in the plot
   annotate("label", x = Inf, y = -Inf,
            label = paste0("R-sq:", test_met$estimate[[2]], "\nRMSE: ", test_met$estimate[[1]]),
            hjust = 1, vjust = -0.5) +
   
-  scale_x_continuous(limits = c(20, 40)) +
-  scale_y_continuous(limits = c(20, 40)) +
+  scale_x_continuous(limits = c(0, 25)) +
+  scale_y_continuous(limits = c(0, 25)) +
   
   # Changing the theme of the plot
     theme(panel.background = element_rect(fill = "gray82"))
@@ -554,8 +551,9 @@ ggsave(plot = publication_ready,
 
 ```{r final_spec}
 vip <- final_spec %>%
-  fit(strength_gtex ~ .,
-         data = bake(weather_prep, weather_train)) %>% #There little change in variable improtance if you use full dataset
+  fit(yield_mg_ha ~ .,
+         data = bake(weather_prep, weather_train) %>%
+        select(-year, -site)) %>% 
     vi() %>%
   mutate(
     Variable = fct_reorder(Variable, 
