@@ -16,7 +16,7 @@ editor: visual
 # Locate the installed libraries (important step while running the script in cluster - sapelo2)
 
 ```{r}
-# .libPaths(c("/work/crss8030/instructor_data/shared_R_libs", .libPaths()))
+.libPaths(c("/work/crss8030/instructor_data/shared_R_libs", .libPaths()))
 ```
 
 
@@ -28,7 +28,7 @@ editor: visual
 
 We begin by loading the required libraries:
 
-Here we have **2 new packages** that you havenot seen before in the class :: here and quarto.
+Here we have **2 new packages** that you have not seen before in the class :: here and quarto.
 
 ```{r}
 #| message: false
@@ -94,7 +94,7 @@ For data split, let's use **70% training / 30% testing**.
 
 ```{r weather_train}
 weather_train <- training(weather_split)  # 70% of data
-weather_train #This is your traing data frame
+weather_train #This is your training data frame
 ```
 
 ```{r weather_test}
@@ -146,22 +146,21 @@ You can find all available recipe step options here: https://tidymodels.github.i
 Different model types require different processing steps.\
 Let's check what steps are required for an elastic net model (linear_reg). We can search for that in this link: https://www.tmwr.org/pre-proc-table #Don't need for numeric data
 
-> Differently from elastic net, variables do not need to be normalized in XgBoost, so we'll skip this step.
 
 ```{r weather_recipe}
 cat("\nCreate recipe for data preprocessing\n")
 
 weather_recipe <- recipe(yield_mg_ha ~ ., data = weather_train) %>% # Remove identifier columns and months not in growing season
   step_rm(
+    hybrid,
     matches("Jan|Feb|Mar|Apr|Oct|Nov|Dec")  # Remove non-growing season months
   ) %>%
-  # updating the role of the 2 columns as ID, so they arenot used as predictors
-  update_role(c(year, site), new_role = "ID") %>% 
-  step_other(hybrid, threshold = 500/nrow(weather_train)) %>%  # groups rare hybrids into "other"
-  step_dummy(hybrid, one_hot = TRUE)          # converts hybrid to numeric columns
+  # updating the role of the 2 columns as ID, so they are not used as predictors
+  update_role(c(year, site), new_role = "ID")
 
 weather_recipe
 ```
+
 
 ```{r weather_prep}
 # Prep the recipe to estimate any required statistics
@@ -189,22 +188,6 @@ First, let's specify:\
 - which **mode** we want to use
 
 > XgBoost can be run with either numerical (regression) or categorical (classification) explanatory variable. Therefore, we have the need to specify the mode here.
-
-XgBoost **hyperparameters**:
-
--   **`trees`**: The number of boosting rounds (i.e., how many trees will be added sequentially).\
--   **`tree_depth`**: Controls how deep each individual tree can grow. Deeper trees can capture more complex interactions but also increase the risk of overfitting.\
--   **`min_n`**: Minimum number of observations required in a node for it to be split. Acts as a regularization tool to prevent overly specific splits.\
--   **`learn_rate`**: Also known as `eta`, it controls how much each additional tree contributes to the overall model. Smaller values make the model more stable but require more trees.
-
-```{r}
-# helps to see all the available hyperparameter we can tune for a model
-show_model_info("boost_tree")
-
-
-# helps to see all the models that we can run with the package parsnip
-get_from_env("models")
-```
 
 
 ```{r xgb_spec}
@@ -244,14 +227,14 @@ set.seed(235) #34549
 resampling_foldcv <- vfold_cv(weather_train, # Create 10-fold cross-validation resampling object from training data
                               v = 10)
 
-# # Create leave one year out cv object from the sampling data
-# resampling_fold_loyo <- group_vfold_cv(weather_train,
-#                                        group = year)
-# 
-# 
-# # Create leave one location out cv object from the sampling data
-# resampling_fold_loso <- group_vfold_cv(weather_train,
-#                                        group = site)
+ # Create leave one year out cv object from the sampling data
+ resampling_fold_loyo <- group_vfold_cv(weather_train,
+                                        group = year)
+
+ 
+ # Create leave one location out cv object from the sampling data
+ resampling_fold_loso <- group_vfold_cv(weather_train,
+                                        group = site)
 
 ```
 
@@ -326,9 +309,9 @@ set.seed(76544)
 
 # Create the list of CV techniques so we can loop through them
 cv_list <- list(
-  vfold = resampling_foldcv
-  # year = resampling_fold_loyo,
-  # location = resampling_fold_loso
+  vfold = resampling_foldcv,
+  year = resampling_fold_loyo,
+  location = resampling_fold_loso
 )
 
 # Create a empty list to store the results from the loop
@@ -578,6 +561,60 @@ ggsave(plot = vip,
        dpi = 600)
 ```
 
+
+
+## 11. Predict on project final test data
+```{r test_predictions}
+# Load test weather and submission files
+test_weather <- read_csv(here("data", "testing", "weathermonthsum_test.csv")) %>%
+  mutate(year = as.factor(year))
+
+test_submission <- read_csv(here("data", "testing", "testing_submission.csv")) %>%
+  mutate(year = as.factor(year))
+
+# Join weather to submission file
+test_data <- test_submission %>%
+  left_join(test_weather, by = c("site", "year"))
+
+
+test_data
+```
+
+
+
+```{r make_predictions}
+# Apply recipe to test data
+test_baked <- bake(weather_prep, new_data = test_data)
+
+# Extract trained model from final_fit
+final_model <- extract_fit_parsnip(final_fit)
+
+# Make predictions
+predictions <- predict(final_model,
+                       new_data = test_baked %>%
+                                  select(-year, -site))
+
+# Fill in the yield column
+final_submission <- test_submission %>%
+  mutate(yield_mg_ha = predictions$.pred)
+
+# Check
+head(final_submission)
+nrow(final_submission)
+```
+
+
+
+```{r save_submission}
+write_csv(final_submission, 
+          here("data", "testing", "final_submission.csv"))
+
+cat("Submission file saved with", nrow(final_submission), "predictions")
+```
+
+
 ```{r}
 knitr::purl("04_XGBoost_model.qmd", output = "XGBoost_script.R", documentation = 0)
 ```
+
+
