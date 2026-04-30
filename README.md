@@ -1,6 +1,8 @@
 # 2026dsa_finalproject_group7 - Corn Yield Prediction
 
-**Team Members:**. - Kriti Poudel. - Mmaduabuchi Okeh.
+**Team Members:** 
+- Kriti Poudel. 
+- Mmaduabuchi Okeh.
 
 ------------------------------------------------------------------------
 
