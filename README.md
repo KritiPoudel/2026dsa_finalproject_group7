@@ -19,9 +19,9 @@ The data contains over **164,000 rows** spanning **10 years** (2014-2023), **45 
 -   Meta information (including site, year, previous crop, longitude, and latitude)
 -   Soil information (including site, year, soil pH, soil organic matter, soil P, soil K).
 
-**Testing data** for year 2024:\
+**Testing data** for year 2024:
 - Submission information (site, year, hybrid, **no yield**)
-- Meta information (same as training)\
+- Meta information (same as training)
 - Soil information (same as training).
 
 > We are tasked with training machine learning models using the training data to predict yield on the test data. We are not provided with the test data yield — only the predictor variables.
