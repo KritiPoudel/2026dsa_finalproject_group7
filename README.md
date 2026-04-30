@@ -10,17 +10,17 @@
 
 This repository contains all code, data processing steps, and machine learning models developed for the Data Science Applied to Agriculture final project on corn yield prediction.
 
-We were provided with a **corn variety trial** data set.\
+We were provided with a **corn variety trial** data set.
 The data contains over **164,000 rows** spanning **10 years** (2014-2023), **45 sites** across the USA, for a total of **270** site-years, where over **5,000** corn hybrids were evaluated.
 
 **Training data** provided for years 2014-2023:
 
--   Trait information (including site, year, hybrid, yield, and grain moisture)\
--   Meta information (including site, year, previous crop, longitude, and latitude)\
+-   Trait information (including site, year, hybrid, yield, and grain moisture)
+-   Meta information (including site, year, previous crop, longitude, and latitude)
 -   Soil information (including site, year, soil pH, soil organic matter, soil P, soil K).
 
 **Testing data** for year 2024:\
-- Submission information (site, year, hybrid, **no yield**)\
+- Submission information (site, year, hybrid, **no yield**)
 - Meta information (same as training)\
 - Soil information (same as training).
 
