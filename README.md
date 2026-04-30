@@ -61,7 +61,7 @@ We trained two machine learning models:
 ### XGBoost
 
 | Parameter             | Value                                              |
-|-----------------------|----------------------------------------------------|
+|--------------------------------------------|----------------------------|
 | Data engineering      | Monthly mean/sum weather summaries                 |
 | Number of predictors  | 30                                                 |
 | Data split            | 70% training / 30% test                            |
